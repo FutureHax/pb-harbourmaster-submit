@@ -1,0 +1,17 @@
+eventName: |
+  Pirate Borg one-shot: The Haunted Hulk
+nameOfEvent: Game Night @ The Green Kraken
+cityState: |
+  Foundry VTT
+format: "Online: Foundry VTT"
+maxPlayers: 4
+addressOrLink: https://example.com/join-game
+date: "2026-08-01"
+startTime: "19:00"
+endTime: "22:00"
+# timezone: EST  # optional if set in defaults.yaml
+description: |
+  Public Pirate Borg one-shot open to new players. Characters provided.
+  Bring a mic and a sense of adventure. Ages 18+.
+notes: |
+  Sample event for dry-run fill only. Do not submit.

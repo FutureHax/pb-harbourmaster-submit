@@ -1,0 +1,7 @@
+node_modules/
+.browser-profile/
+config/defaults.yaml
+*.log
+.DS_Store
+dist/
+.tsx-cache/
