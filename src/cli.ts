@@ -11,7 +11,7 @@ import {
 function usage(exitCode = 1): never {
   console.error(`Usage:
   npm run submit -- [--defaults path/to/defaults.yaml] <event.yaml>
-  npm run submit -- [--defaults path/to/defaults.yaml] --from-url <startplaying-url>
+  npm run submit -- [--defaults path/to/defaults.yaml] --from-url <startplaying-url> [--min-days N]
 
 Example:
   npm run submit -- examples/sample-event.yaml
@@ -36,10 +36,12 @@ function parseArgs(argv: string[]): {
   defaultsPath: string;
   eventPath: string | null;
   fromUrl: string | null;
+  minDaysAhead: number;
 } {
   const args = [...argv];
   let defaultsPath = path.join("config", "defaults.yaml");
   let fromUrl: string | null = null;
+  let minDaysAhead = 7;
   const positionals: string[] = [];
 
   while (args.length) {
@@ -55,6 +57,15 @@ function parseArgs(argv: string[]): {
       const next = args.shift();
       if (!next) usage();
       fromUrl = next;
+    } else if (a === "--min-days") {
+      const next = args.shift();
+      if (!next) usage();
+      const parsed = Number(next);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        console.error("--min-days must be a non-negative number");
+        usage();
+      }
+      minDaysAhead = parsed;
     } else if (a === "--help" || a === "-h") {
       usage(0);
     } else if (a.startsWith("-")) {
@@ -83,11 +94,14 @@ function parseArgs(argv: string[]): {
     defaultsPath,
     eventPath: fromUrl ? null : positionals[0]!,
     fromUrl,
+    minDaysAhead,
   };
 }
 
 async function main(): Promise<void> {
-  const { defaultsPath, eventPath, fromUrl } = parseArgs(process.argv.slice(2));
+  const { defaultsPath, eventPath, fromUrl, minDaysAhead } = parseArgs(
+    process.argv.slice(2),
+  );
 
   if (!fs.existsSync(path.resolve(defaultsPath))) {
     console.error(
@@ -101,10 +115,12 @@ async function main(): Promise<void> {
   try {
     const defaults = readYamlFile(defaultsPath);
     const event = fromUrl
-      ? await eventFromStartPlayingUrl(fromUrl)
+      ? await eventFromStartPlayingUrl(fromUrl, { minDaysAhead })
       : readYamlFile(eventPath!);
     if (fromUrl) {
-      console.log("Imported event from StartPlaying:");
+      console.log(
+        `Imported event from StartPlaying (min ${minDaysAhead} day(s) ahead):`,
+      );
       console.log(JSON.stringify(event, null, 2));
     }
     data = mergeSubmission(defaults, event);

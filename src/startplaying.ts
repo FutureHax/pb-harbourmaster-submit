@@ -151,9 +151,70 @@ export function assertStartPlayingUrl(raw: string): URL {
   return url;
 }
 
+function listAdventureSessions(
+  cache: Cache,
+  adventure: Record<string, unknown>,
+): Array<{ startIso: string; endIso: string | null }> {
+  const sessions: Array<{ startIso: string; endIso: string | null }> = [];
+  const refs = Array.isArray(adventure.sessions) ? adventure.sessions : [];
+  for (const ref of refs) {
+    const session = resolveRef(cache, ref);
+    const startIso = asString(session?.startTime);
+    if (!startIso) continue;
+    sessions.push({
+      startIso,
+      endIso: asString(session?.endTime),
+    });
+  }
+  sessions.sort((a, b) => a.startIso.localeCompare(b.startIso));
+  return sessions;
+}
+
+/** Harbourmasters ask for ~1 week notice; pick the soonest session that far out. */
+function pickSession(
+  cache: Cache,
+  adventure: Record<string, unknown>,
+  minDaysAhead: number,
+): { startIso: string; endIso: string | null; label: string } {
+  const now = Date.now();
+  const minMs = minDaysAhead * 24 * 60 * 60 * 1000;
+  const sessions = listAdventureSessions(cache, adventure);
+
+  const eligible = sessions.filter((s) => {
+    const t = Date.parse(s.startIso);
+    return Number.isFinite(t) && t - now >= minMs;
+  });
+
+  if (eligible[0]) {
+    return {
+      ...eligible[0],
+      label: `soonest session >= ${minDaysAhead} day(s) ahead`,
+    };
+  }
+
+  const nextSession = resolveRef(cache, adventure.nextSession);
+  const startIso =
+    asString(nextSession?.startTime) ?? asString(adventure.scheduledDate);
+  if (!startIso) {
+    throw new Error("Adventure has no upcoming session start time");
+  }
+  return {
+    startIso,
+    endIso: asString(nextSession?.endTime),
+    label: `fallback nextSession (none were >= ${minDaysAhead} day(s) ahead)`,
+  };
+}
+
+export type StartPlayingImportOptions = {
+  /** Prefer sessions at least this many days ahead (default 7). */
+  minDaysAhead?: number;
+};
+
 export async function eventFromStartPlayingUrl(
   rawUrl: string,
+  options: StartPlayingImportOptions = {},
 ): Promise<EventInput> {
+  const minDaysAhead = options.minDaysAhead ?? 7;
   const url = assertStartPlayingUrl(rawUrl);
   const slug = adventureSlugFromUrl(url);
 
@@ -187,7 +248,7 @@ export async function eventFromStartPlayingUrl(
 
   const template = resolveRef(cache, adventure.gameTemplate);
   const host = resolveRef(cache, adventure.host);
-  const nextSession = resolveRef(cache, adventure.nextSession);
+  const session = pickSession(cache, adventure, minDaysAhead);
 
   const platformRef = Array.isArray(template?.platforms)
     ? template.platforms[0]
@@ -195,16 +256,10 @@ export async function eventFromStartPlayingUrl(
   const platform = resolveRef(cache, platformRef);
   const platformName = asString(platform?.name);
 
-  const startIso =
-    asString(nextSession?.startTime) ??
-    asString(adventure.scheduledDate);
-  if (!startIso) {
-    throw new Error("Adventure has no upcoming session start time");
-  }
-  const endIso = asString(nextSession?.endTime);
-
-  const start = partsInTimeZone(startIso, timeZone);
-  const end = endIso ? partsInTimeZone(endIso, timeZone) : null;
+  const start = partsInTimeZone(session.startIso, timeZone);
+  const end = session.endIso
+    ? partsInTimeZone(session.endIso, timeZone)
+    : null;
 
   const format = mapFormat(platformName);
   const cityState = platformName
@@ -234,7 +289,7 @@ export async function eventFromStartPlayingUrl(
     startTime: start.time,
     timezone: timeZone,
     description,
-    notes: `Imported from ${url.toString()}`,
+    notes: `Imported from ${url.toString()} (${session.label})`,
   };
   if (end) {
     event.endTime = end.time;

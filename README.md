@@ -46,7 +46,7 @@ If Chrome opens to a Google sign-in page the first time, complete login in that 
 `--from-url` fetches the adventure page and maps:
 
 - title, platform (Foundry/Roll20/etc.), max players
-- next session date/start/end in the listing timezone
+- soonest session at least **7 days** ahead (Harbourmaster lead time; override with `--min-days N`)
 - adventure intro + public listing blurb into `description`
 - the adventure URL into `addressOrLink`
 
