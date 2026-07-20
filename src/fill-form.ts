@@ -7,6 +7,7 @@ import {
   LABELS,
 } from "./form-map.js";
 import type { Submission } from "./schema.js";
+import { hhmmToFormParts, type FormTimePeriod } from "./time.js";
 
 async function waitForFormReady(
   page: Page,
@@ -101,8 +102,19 @@ async function checkHarbourmastersYes(page: Page): Promise<void> {
   );
   await q.waitFor({ state: "visible", timeout: 30_000 });
   const option = q.getByRole("checkbox", { name: HARBOURMASTERS_YES_LABEL });
-  if (!(await option.isChecked())) {
-    await option.check();
+  await option.waitFor({ state: "visible", timeout: 30_000 });
+  const checked = await option.getAttribute("aria-checked");
+  if (checked === "true") return;
+  // Google Forms uses a custom checkbox; Playwright's check() often no-ops.
+  await option.click({ force: true });
+  await page.waitForTimeout(300);
+  if ((await option.getAttribute("aria-checked")) !== "true") {
+    await option.evaluate((el) => {
+      (el as HTMLElement).click();
+    });
+  }
+  if ((await option.getAttribute("aria-checked")) !== "true") {
+    throw new Error("Could not check Harbourmasters Program confirmation");
   }
 }
 
@@ -114,7 +126,19 @@ async function selectMultipleChoice(
 ): Promise<void> {
   const q = await resolveQuestion(page, entryId, label);
   await q.waitFor({ state: "visible", timeout: 30_000 });
-  await q.getByRole("radio", { name: choice, exact: true }).check();
+  const option = q.getByRole("radio", { name: choice, exact: true });
+  await option.waitFor({ state: "visible", timeout: 30_000 });
+  if ((await option.getAttribute("aria-checked")) === "true") return;
+  await option.click({ force: true });
+  await page.waitForTimeout(300);
+  if ((await option.getAttribute("aria-checked")) !== "true") {
+    await option.evaluate((el) => {
+      (el as HTMLElement).click();
+    });
+  }
+  if ((await option.getAttribute("aria-checked")) !== "true") {
+    throw new Error(`Could not select multiple-choice option: ${choice}`);
+  }
 }
 
 async function fillDate(
@@ -160,14 +184,133 @@ async function fillDate(
   throw new Error(`Could not find date inputs for entry ${entryId}`);
 }
 
+async function clearAndType(box: Locator, value: string): Promise<void> {
+  await box.click();
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await box.press(`${modifier}+A`);
+  await box.press("Backspace");
+  await box.pressSequentially(value, { delay: 30 });
+}
+
+function normalizeDigits(raw: string | null): string {
+  return (raw ?? "").replace(/\D/g, "");
+}
+
+async function readFieldDigits(box: Locator): Promise<string> {
+  const value = await box.inputValue().catch(() => "");
+  if (value) return normalizeDigits(value);
+  const text = await box.innerText().catch(() => "");
+  return normalizeDigits(text);
+}
+
+async function readSelectedPeriod(
+  q: Locator,
+  page: Page,
+): Promise<FormTimePeriod | ""> {
+  const selectedInQ = q.locator('[role="option"][aria-selected="true"]').first();
+  if ((await selectedInQ.count()) > 0) {
+    const fromData = ((await selectedInQ.getAttribute("data-value")) ?? "").toUpperCase();
+    if (fromData === "AM" || fromData === "PM") return fromData;
+    const fromText = (await selectedInQ.innerText()).trim().toUpperCase();
+    if (fromText === "AM" || fromText === "PM") return fromText;
+  }
+
+  const listbox = q.locator('[role="listbox"]').first();
+  if ((await listbox.count()) > 0) {
+    const label =
+      ((await listbox.getAttribute("aria-label")) ?? "").toUpperCase() ||
+      (await listbox.innerText()).trim().toUpperCase();
+    if (/\bAM\b/.test(label) && !/\bPM\b/.test(label)) return "AM";
+    if (/\bPM\b/.test(label) && !/\bAM\b/.test(label)) return "PM";
+    if (label === "AM" || label === "PM") return label;
+  }
+
+  const pageSelected = page
+    .locator('[role="option"][aria-selected="true"]')
+    .filter({ visible: true })
+    .first();
+  if ((await pageSelected.count()) > 0) {
+    const fromData = ((await pageSelected.getAttribute("data-value")) ?? "").toUpperCase();
+    if (fromData === "AM" || fromData === "PM") return fromData;
+  }
+
+  return "";
+}
+
+async function selectPeriod(
+  page: Page,
+  q: Locator,
+  period: FormTimePeriod,
+): Promise<void> {
+  const listbox = q.locator('[role="listbox"]').first();
+  if ((await listbox.count()) === 0) {
+    const toggle = q.getByText(new RegExp(`^${period}$`, "i")).first();
+    if ((await toggle.count()) > 0) {
+      await toggle.click();
+      await page.waitForTimeout(200);
+      return;
+    }
+    throw new Error(`No AM/PM listbox found; wanted ${period}`);
+  }
+
+  await listbox.click();
+  await page.waitForTimeout(200);
+
+  const inQuestion = q.getByRole("option", { name: new RegExp(`^${period}$`, "i") }).first();
+  if ((await inQuestion.count()) > 0) {
+    await inQuestion.click({ force: true });
+    await page.waitForTimeout(200);
+    return;
+  }
+
+  const byDataValue = q.locator(`[role="option"][data-value="${period}"]`).first();
+  if ((await byDataValue.count()) > 0) {
+    await byDataValue.click({ force: true });
+    await page.waitForTimeout(200);
+    return;
+  }
+
+  // Options often portal outside the question after the listbox opens.
+  const onPage = page
+    .getByRole("option", { name: new RegExp(`^${period}$`, "i") })
+    .filter({ visible: true })
+    .first();
+  await onPage.waitFor({ state: "visible", timeout: 5_000 });
+  await onPage.click({ force: true });
+  await page.waitForTimeout(200);
+}
+
+async function assertTimeFields(
+  hourBox: Locator,
+  minuteBox: Locator,
+  q: Locator,
+  page: Page,
+  hhmm: string,
+  hour12: number,
+  minute: string,
+  period: FormTimePeriod,
+): Promise<void> {
+  const hourRaw = await readFieldDigits(hourBox);
+  const minuteRaw = await readFieldDigits(minuteBox);
+  const hourGot = Number(hourRaw);
+  const minuteGot = minuteRaw.padStart(2, "0");
+  const periodGot = await readSelectedPeriod(q, page);
+
+  if (hourGot !== hour12 || minuteGot !== minute || periodGot !== period) {
+    throw new Error(
+      `Time fields mismatch for ${hhmm}: got hour=${hourRaw || "?"} minute=${minuteRaw || "?"} period=${periodGot || "unknown"}; wanted ${hour12}:${minute} ${period}`,
+    );
+  }
+}
+
 async function fillTime(
   page: Page,
   entryId: string,
   label: RegExp,
   hhmm: string,
 ): Promise<void> {
-  const [hour24Str, minute] = hhmm.split(":");
-  const hour24 = Number(hour24Str);
+  const { hour12, minute, period } = hhmmToFormParts(hhmm);
+  const hourStr = String(hour12);
   const q = await resolveQuestion(page, entryId, label);
   await q.waitFor({ state: "visible", timeout: 30_000 });
 
@@ -180,33 +323,30 @@ async function fillTime(
   const hourBox = q.getByLabel(/^hour$/i).first();
   const minuteBox = q.getByLabel(/^minute$/i).first();
   if ((await hourBox.count()) > 0 && (await minuteBox.count()) > 0) {
-    const isPm = hour24 >= 12;
-    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
-    await hourBox.fill(String(hour12).padStart(2, "0"));
-    await minuteBox.fill(minute!);
-
-    const amPmGroup = q.locator('[role="listbox"], [aria-label*="AM"], [aria-label*="PM"]').first();
-    if ((await amPmGroup.count()) > 0) {
-      await amPmGroup.click();
-      await page
-        .locator(`[role="option"][data-value="${isPm ? "PM" : "AM"}"]`)
-        .filter({ visible: true })
-        .first()
-        .click();
-    } else {
-      const toggle = q.getByText(isPm ? /^PM$/i : /^AM$/i).first();
-      if ((await toggle.count()) > 0) {
-        await toggle.click();
-      }
-    }
+    await clearAndType(hourBox, hourStr);
+    await clearAndType(minuteBox, minute);
+    await selectPeriod(page, q, period);
+    await assertTimeFields(hourBox, minuteBox, q, page, hhmm, hour12, minute, period);
     return;
   }
 
   const textboxes = q.getByRole("textbox");
   const n = await textboxes.count();
   if (n >= 2) {
-    await textboxes.nth(0).fill(hour24Str!);
-    await textboxes.nth(1).fill(minute!);
+    // Still treat as a 12h UI: write 12h hour + minute, then set AM/PM.
+    await clearAndType(textboxes.nth(0), hourStr);
+    await clearAndType(textboxes.nth(1), minute);
+    await selectPeriod(page, q, period);
+    await assertTimeFields(
+      textboxes.nth(0),
+      textboxes.nth(1),
+      q,
+      page,
+      hhmm,
+      hour12,
+      minute,
+      period,
+    );
     return;
   }
 
