@@ -9,7 +9,7 @@ addressOrLink: https://example.com/join-game
 date: "2026-08-01"
 startTime: "19:00"
 endTime: "22:00"
-# timezone: EST  # optional if set in defaults.yaml
+timezone: EDT
 description: |
   Public Pirate Borg one-shot open to new players. Characters provided.
   Bring a mic and a sense of adventure. Ages 18+.
