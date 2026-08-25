@@ -1,4 +1,5 @@
 import { FORMATS, type EventInput } from "./schema.js";
+import { shortTimeZoneName } from "./time.js";
 
 const STARTPLAYING_HOST = "startplaying.games";
 
@@ -287,7 +288,7 @@ export async function eventFromStartPlayingUrl(
     addressOrLink: url.toString(),
     date: start.date,
     startTime: start.time,
-    timezone: timeZone,
+    timezone: shortTimeZoneName(session.startIso, timeZone),
     description,
     notes: `Imported from ${url.toString()} (${session.label})`,
   };

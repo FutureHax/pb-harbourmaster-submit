@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { hhmmToFormParts } from "./time.js";
+import { hhmmToFormParts, shortTimeZoneName } from "./time.js";
 
 describe("hhmmToFormParts", () => {
   it("maps midnight to 12 AM", () => {
@@ -46,5 +46,25 @@ describe("hhmmToFormParts", () => {
   it("rejects invalid input", () => {
     assert.throws(() => hhmmToFormParts("25:00"));
     assert.throws(() => hhmmToFormParts("12"));
+  });
+});
+
+describe("shortTimeZoneName", () => {
+  it("uses the daylight abbreviation for a summer session", () => {
+    assert.equal(
+      shortTimeZoneName("2026-09-10T22:00:00.000Z", "America/New_York"),
+      "EDT",
+    );
+  });
+
+  it("uses the standard abbreviation for a winter session", () => {
+    assert.equal(
+      shortTimeZoneName("2026-01-15T23:00:00.000Z", "America/New_York"),
+      "EST",
+    );
+  });
+
+  it("rejects invalid input", () => {
+    assert.throws(() => shortTimeZoneName("not-a-date", "America/New_York"));
   });
 });

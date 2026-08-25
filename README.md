@@ -59,7 +59,6 @@ Host identity still comes from `config/defaults.yaml`.
 - `email`
 - `harbourmasterName`
 - `publicContact`
-- `timezone` (optional default; StartPlaying import sets its own)
 - `signedUpForHarbourmasters: true`
 
 This file is gitignored. Keep personal contact details out of the repo.
@@ -79,7 +78,7 @@ See [`examples/sample-event.yaml`](examples/sample-event.yaml). Required fields:
 | `date` | `YYYY-MM-DD` |
 | `startTime` | `HH:MM` (24h) |
 | `endTime` | Optional `HH:MM` |
-| `timezone` | Optional if set in defaults |
+| `timezone` | Short label for the form, e.g. `EDT` or `EST` |
 | `description` | Game description |
 | `notes` | Optional moderator-only notes |
 

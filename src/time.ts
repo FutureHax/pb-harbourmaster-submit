@@ -6,6 +6,24 @@ export type FormTimeParts = {
   period: FormTimePeriod;
 };
 
+/**
+ * Short zone label for the form (EST, EDT, PST...). Resolved against the
+ * session date so the form shows the abbreviation in effect that day.
+ */
+export function shortTimeZoneName(iso: string, timeZone: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Invalid datetime: ${iso}`);
+  }
+  const name = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "short",
+  })
+    .formatToParts(d)
+    .find((p) => p.type === "timeZoneName")?.value;
+  return name ?? timeZone;
+}
+
 /** Convert schema HH:MM (24h) into Google Forms 12h spinner parts. */
 export function hhmmToFormParts(hhmm: string): FormTimeParts {
   const [hour24Str, minute] = hhmm.split(":");

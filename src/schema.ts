@@ -41,7 +41,7 @@ export const eventSchema = z.object({
 export const submissionSchema = defaultsSchema
   .merge(eventSchema)
   .refine((data) => Boolean(data.timezone), {
-    message: "timezone is required (set it in defaults.yaml or the event file)",
+    message: "timezone is required on the event (short label such as EDT or EST)",
     path: ["timezone"],
   });
 
